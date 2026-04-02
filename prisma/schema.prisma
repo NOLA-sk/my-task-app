@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+// 1. Генератор клиента
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 2. Источник данных (без url!)
+datasource db {
+  provider = "postgresql"
+}
+
+// 3. Таблица пользователей
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+  tasks         Task[]
+  sharedAccess  SharedAccess[]
+
+  @@map("users")
+}
+
+// 4. Таблица задач
+model Task {
+  id            Int      @id @default(autoincrement())
+  title         String
+  isCompleted   Boolean  @default(false) @map("is_completed")
+  createdAt     DateTime @default(now()) @map("created_at")
+  userId        Int      @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sharedAccess  SharedAccess[]
+
+  @@map("tasks")
+}
+
+// 5. Таблица доступа
+model SharedAccess {
+  id        Int   @id @default(autoincrement())
+  taskId    Int   @map("task_id")
+  userId    Int   @map("user_id")
+  task      Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("shared_access")
+}

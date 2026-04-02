@@ -1,0 +1,31 @@
+# === Секреты (никогда не коммитить!) ===
+.env
+.env.local
+.env.*.local
+
+# === Зависимости (тяжёлые, восстанавливаются) ===
+node_modules/
+npm-debug.log*
+
+# === Prisma ===
+prisma/*.db
+prisma/*.db-journal
+
+# === Логи и кэш ===
+*.log
+dist/
+build/
+*.pid
+*.seed
+
+# === ОС ===
+.DS_Store
+Thumbs.db
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+test-api.http
