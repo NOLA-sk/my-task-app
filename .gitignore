@@ -29,3 +29,6 @@ Thumbs.db
 *.swo
 
 test-api.http
+test-auth.http
+test-share.http
+test-full.http

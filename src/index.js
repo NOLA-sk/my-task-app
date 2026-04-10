@@ -169,19 +169,167 @@ app.get('/api/auth/me', protect, async (req, res) => {
   }
 });
 
-// 📋 Получить все задачи (тестовый маршрут)
+// === МАРШРУТЫ: РАСШАРИВАНИЕ ЗАДАЧ ===
+
+// 🔗 Добавить доступ к задаче для другого пользователя
+app.post('/api/tasks/:id/share', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.body;
+    const ownerId = req.user.id;
+    
+    // 1. Валидация
+    if (!email) {
+      return res.status(400).json({ error: 'Email пользователя обязателен' });
+    }
+    
+    // 2. Проверяем, что задача существует и принадлежит текущему пользователю
+    const task = await prisma.task.findUnique({ where: { id: parseInt(id) } });
+    if (!task) {
+      return res.status(404).json({ error: 'Задача не найдена' });
+    }
+    if (task.userId !== ownerId) {
+      return res.status(403).json({ error: 'Нет прав на расшаривание этой задачи' });
+    }
+    
+    // 3. Находим пользователя по email
+    const targetUser = await prisma.user.findUnique({ where: { email } });
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    if (targetUser.id === ownerId) {
+      return res.status(400).json({ error: 'Нельзя расшарить задачу самому себе' });
+    }
+    
+    // 4. Создаём запись в shared_access (игнорируем дубликаты)
+    const shared = await prisma.sharedAccess.create({
+       data: {
+        taskId: parseInt(id),
+        userId: targetUser.id
+      }
+    });
+    
+    res.status(201).json({ 
+      message: 'Доступ предоставлен', 
+      shared: { taskId: shared.taskId, userId: shared.userId } 
+    });
+    
+  } catch (error) {
+    // Обработка ошибки дубликата (если доступ уже есть)
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Доступ уже предоставлен этому пользователю' });
+    }
+    console.error('Share error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔗 Убрать доступ к задаче
+app.delete('/api/tasks/:id/share/:userId', protect, async (req, res) => {
+  try {
+    const { id, userId } = req.params;
+    const ownerId = req.user.id;
+    
+    // Проверяем права: только владелец задачи может убрать доступ
+    const task = await prisma.task.findUnique({ where: { id: parseInt(id) } });
+    if (!task || task.userId !== ownerId) {
+      return res.status(403).json({ error: 'Нет прав на управление доступом' });
+    }
+    
+    // Удаляем доступ
+    await prisma.sharedAccess.delete({
+      where: {
+        taskId_userId: {
+          taskId: parseInt(id),
+          userId: parseInt(userId)
+        }
+      }
+    });
+    
+    res.json({ message: 'Доступ удалён' });
+    
+  } catch (error) {
+    console.error('Unshare error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 📋 Получить задачи, которые расшарили мне
+app.get('/api/tasks/shared', protect, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Находим все задачи, которые расшарили текущему пользователю
+    const sharedTasks = await prisma.sharedAccess.findMany({
+      where: { userId },
+      include: {
+        task: {
+          include: {
+            user: { select: { id: true, email: true } }
+          }
+        }
+      }
+    });
+    
+    // Возвращаем только задачи (без обёртки sharedAccess)
+    const tasks = sharedTasks.map(sa => sa.task);
+    
+    res.json(tasks);
+    
+  } catch (error) {
+    console.error('Get shared tasks error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// // 📋 Получить все задачи (тестовый маршрут)
+// app.get('/api/tasks', protect, async (req, res) => {
+//   try {
+//     const tasks = await prisma.task.findMany({
+//       where: { userId: req.user.id },
+//       include: { 
+//         user: { 
+//           select: { id: true, email: true } // Возвращаем только нужные поля пользователя
+//         } 
+//       },
+//       orderBy: { createdAt: 'desc' } // Сортируем по дате создания (новые сверху)
+//     });
+//     res.json(tasks);
+//   } catch (error) {
+//     console.error('Error fetching tasks:', error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+// 📋 Получить все задачи (свои + расшаренные)
 app.get('/api/tasks', protect, async (req, res) => {
   try {
-    const tasks = await prisma.task.findMany({
-      where: { userId: req.user.id },
-      include: { 
-        user: { 
-          select: { id: true, email: true } // Возвращаем только нужные поля пользователя
-        } 
-      },
-      orderBy: { createdAt: 'desc' } // Сортируем по дате создания (новые сверху)
+    const userId = req.user.id;
+    
+    // Получаем свои задачи
+    const myTasks = await prisma.task.findMany({
+      where: { userId },
+      include: { user: { select: { id: true, email: true } } },
+      orderBy: { createdAt: 'desc' }
     });
-    res.json(tasks);
+    
+    // Получаем расшаренные мне задачи
+    const sharedAccess = await prisma.sharedAccess.findMany({
+      where: { userId },
+      include: {
+        task: {
+          include: { user: { select: { id: true, email: true } } }
+        }
+      }
+    });
+    const sharedTasks = sharedAccess.map(sa => sa.task);
+    
+    // Объединяем и сортируем
+    const allTasks = [...myTasks, ...sharedTasks].sort((a, b) => 
+      new Date(b.createdAt) - new Date(a.createdAt)
+    );
+    
+    res.json(allTasks);
+    
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ error: error.message });
