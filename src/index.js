@@ -4,6 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { protect } from './middleware/auth.js';
 
 // Prisma с адаптером для PostgreSQL
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -61,10 +62,118 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// === МАРШРУТЫ АВТОРИЗАЦИИ ===
+
+// 📝 РЕГИСТРАЦИЯ НОВОГО ПОЛЬЗОВАТЕЛЯ
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // 1. Валидация
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
+    }
+    
+    // 2. Проверяем, не занят ли email
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
+    }
+    
+    // 3. Хешируем пароль
+    const { hashPassword } = await import('./utils/hash.js');
+    const passwordHash = await hashPassword(password);
+    
+    // 4. Создаём пользователя
+    const newUser = await prisma.user.create({
+      data: { email, passwordHash },
+      select: { id: true, email: true, createdAt: true }
+    });
+    
+    // 5. Генерируем токен
+    const { generateToken } = await import('./utils/auth.js');
+    const token = generateToken(newUser);
+    
+    // 6. Возвращаем пользователя и токен
+    res.status(201).json({
+      user: newUser,
+      token
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔐 ВХОД (ПОЛУЧЕНИЕ ТОКЕНА)
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // 1. Валидация
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+    
+    // 2. Ищем пользователя
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ error: 'Неверный email или пароль' });
+    }
+    
+    // 3. Проверяем пароль
+    const { verifyPassword } = await import('./utils/hash.js');
+    const isValid = await verifyPassword(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Неверный email или пароль' });
+    }
+    
+    // 4. Генерируем токен
+    const { generateToken } = await import('./utils/auth.js');
+    const token = generateToken(user);
+    
+    // 5. Возвращаем токен (пароль не отдаём!)
+    res.json({
+      user: { id: user.id, email: user.email },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 👤 ПОЛУЧИТЬ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ (защищённый маршрут)
+app.get('/api/auth/me', protect, async (req, res) => {
+  try {
+    // req.user уже добавлен middleware protect()
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, email: true, createdAt: true }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 📋 Получить все задачи (тестовый маршрут)
-app.get('/api/tasks', async (req, res) => {
+app.get('/api/tasks', protect, async (req, res) => {
   try {
     const tasks = await prisma.task.findMany({
+      where: { userId: req.user.id },
       include: { 
         user: { 
           select: { id: true, email: true } // Возвращаем только нужные поля пользователя
@@ -79,42 +188,68 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// ➕ СОЗДАТЬ НОВУЮ ЗАДАЧУ
-app.post('/api/tasks', async (req, res) => {
+// // ➕ СОЗДАТЬ НОВУЮ ЗАДАЧУ
+// app.post('/api/tasks', async (req, res) => {
+//   try {
+//     // 1. Получаем данные из тела запроса
+//     const { title, userId } = req.body;
+    
+//     // 2. Простая валидация: проверяем обязательные поля
+//     if (!title || !userId) {
+//       return res.status(400).json({ error: 'Title и userId обязательны' });
+//     }
+    
+//     // 3. Проверяем, существует ли пользователь с таким ID
+//     const user = await prisma.user.findUnique({ 
+//       where: { id: parseInt(userId) } 
+//     });
+    
+//     if (!user) {
+//       return res.status(400).json({ error: 'Пользователь не найден' });
+//     }
+    
+//     // 4. Создаём задачу в базе
+//     const newTask = await prisma.task.create({
+//        data: {
+//         title,                    // Короткая запись: title: title
+//         userId: parseInt(userId), // Превращаем строку в число
+//         isCompleted: false        // Новая задача по умолчанию не выполнена
+//       },
+//       include: { 
+//         // Сразу возвращаем данные пользователя в ответе
+//         user: { select: { id: true, email: true } } 
+//       }
+//     });
+    
+//     // 5. Возвращаем созданную задачу с кодом 201 (Created)
+//     res.status(201).json(newTask);
+    
+//   } catch (error) {
+//     console.error('Error creating task:', error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// ➕ СОЗДАТЬ НОВУЮ ЗАДАЧУ (теперь только для авторизованных)
+app.post('/api/tasks', protect, async (req, res) => {
   try {
-    // 1. Получаем данные из тела запроса
-    const { title, userId } = req.body;
+    const { title } = req.body;
+    const userId = req.user.id; // ← Берём из токена, а не из body!
     
-    // 2. Простая валидация: проверяем обязательные поля
-    if (!title || !userId) {
-      return res.status(400).json({ error: 'Title и userId обязательны' });
+    if (!title) {
+      return res.status(400).json({ error: 'Title обязателен' });
     }
     
-    // 3. Проверяем, существует ли пользователь с таким ID
-    const user = await prisma.user.findUnique({ 
-      where: { id: parseInt(userId) } 
-    });
-    
-    if (!user) {
-      return res.status(400).json({ error: 'Пользователь не найден' });
-    }
-    
-    // 4. Создаём задачу в базе
     const newTask = await prisma.task.create({
-       data: {
-        title,                    // Короткая запись: title: title
-        userId: parseInt(userId), // Превращаем строку в число
-        isCompleted: false        // Новая задача по умолчанию не выполнена
+        data: {
+        title,
+        userId,
+        isCompleted: false
       },
-      include: { 
-        // Сразу возвращаем данные пользователя в ответе
-        user: { select: { id: true, email: true } } 
-      }
+      include: { user: { select: { id: true, email: true } } }
     });
     
-    // 5. Возвращаем созданную задачу с кодом 201 (Created)
     res.status(201).json(newTask);
-    
   } catch (error) {
     console.error('Error creating task:', error);
     res.status(500).json({ error: error.message });
@@ -151,14 +286,53 @@ app.get('/api/tasks/:id', async (req, res) => {
   }
 });
 
-// ✏️ ОБНОВИТЬ ЗАДАЧУ
-app.put('/api/tasks/:id', async (req, res) => {
+// // ✏️ ОБНОВИТЬ ЗАДАЧУ
+// app.put('/api/tasks/:id', async (req, res) => {
+//   try {
+//     // 1. Получаем ID из маршрута и новые данные из тела
+//     const { id } = req.params;
+//     const { title, isCompleted } = req.body;
+    
+//     // 2. Проверяем, существует ли задача
+//     const existingTask = await prisma.task.findUnique({ 
+//       where: { id: parseInt(id) } 
+//     });
+    
+//     if (!existingTask) {
+//       return res.status(404).json({ error: 'Задача не найдена' });
+//     }
+    
+//     // 3. Обновляем только те поля, которые пришли в запросе
+//     const updatedTask = await prisma.task.update({
+//       where: { id: parseInt(id) },
+//        data: {
+//         // Если title пришёл — используем его, иначе оставляем старый
+//         title: title !== undefined ? title : existingTask.title,
+//         // То же самое для isCompleted
+//         isCompleted: isCompleted !== undefined ? isCompleted : existingTask.isCompleted
+//       },
+//       include: { 
+//         user: { select: { id: true, email: true } } 
+//       }
+//     });
+    
+//     // 4. Возвращаем обновлённую задачу
+//     res.json(updatedTask);
+    
+//   } catch (error) {
+//     console.error('Error updating task:', error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// ✏️ ОБНОВИТЬ ЗАДАЧУ (только свою!)
+app.put('/api/tasks/:id', protect, async (req, res) => {
   try {
-    // 1. Получаем ID из маршрута и новые данные из тела
     const { id } = req.params;
     const { title, isCompleted } = req.body;
+    const userId = req.user.id;
     
-    // 2. Проверяем, существует ли задача
+    // Проверяем, что задача существует и принадлежит пользователю
     const existingTask = await prisma.task.findUnique({ 
       where: { id: parseInt(id) } 
     });
@@ -167,36 +341,65 @@ app.put('/api/tasks/:id', async (req, res) => {
       return res.status(404).json({ error: 'Задача не найдена' });
     }
     
-    // 3. Обновляем только те поля, которые пришли в запросе
+    // 🔐 Проверка прав: пользователь может менять только свои задачи
+    if (existingTask.userId !== userId) {
+      return res.status(403).json({ error: 'Нет прав на изменение этой задачи' });
+    }
+    
     const updatedTask = await prisma.task.update({
       where: { id: parseInt(id) },
        data: {
-        // Если title пришёл — используем его, иначе оставляем старый
         title: title !== undefined ? title : existingTask.title,
-        // То же самое для isCompleted
         isCompleted: isCompleted !== undefined ? isCompleted : existingTask.isCompleted
       },
-      include: { 
-        user: { select: { id: true, email: true } } 
-      }
+      include: { user: { select: { id: true, email: true } } }
     });
     
-    // 4. Возвращаем обновлённую задачу
     res.json(updatedTask);
-    
   } catch (error) {
     console.error('Error updating task:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// 🗑️ УДАЛИТЬ ЗАДАЧУ
-app.delete('/api/tasks/:id', async (req, res) => {
-  try {
-    // 1. Получаем ID из параметров маршрута
-    const { id } = req.params;
+// // 🗑️ УДАЛИТЬ ЗАДАЧУ
+// app.delete('/api/tasks/:id', async (req, res) => {
+//   try {
+//     // 1. Получаем ID из параметров маршрута
+//     const { id } = req.params;
     
-    // 2. Проверяем, существует ли задача
+//     // 2. Проверяем, существует ли задача
+//     const existingTask = await prisma.task.findUnique({ 
+//       where: { id: parseInt(id) } 
+//     });
+    
+//     if (!existingTask) {
+//       return res.status(404).json({ error: 'Задача не найдена' });
+//     }
+    
+//     // 3. Удаляем задачу из базы
+//     await prisma.task.delete({
+//       where: { id: parseInt(id) }
+//     });
+    
+//     // 4. Возвращаем подтверждение удаления
+//     res.json({ 
+//       message: 'Задача успешно удалена', 
+//       deletedId: parseInt(id) 
+//     });
+    
+//   } catch (error) {
+//     console.error('Error deleting task:', error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// 🗑️ УДАЛИТЬ ЗАДАЧУ (только свою!)
+app.delete('/api/tasks/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    
     const existingTask = await prisma.task.findUnique({ 
       where: { id: parseInt(id) } 
     });
@@ -205,17 +408,16 @@ app.delete('/api/tasks/:id', async (req, res) => {
       return res.status(404).json({ error: 'Задача не найдена' });
     }
     
-    // 3. Удаляем задачу из базы
+    // 🔐 Проверка прав
+    if (existingTask.userId !== userId) {
+      return res.status(403).json({ error: 'Нет прав на удаление этой задачи' });
+    }
+    
     await prisma.task.delete({
       where: { id: parseInt(id) }
     });
     
-    // 4. Возвращаем подтверждение удаления
-    res.json({ 
-      message: 'Задача успешно удалена', 
-      deletedId: parseInt(id) 
-    });
-    
+    res.json({ message: 'Задача успешно удалена', deletedId: parseInt(id) });
   } catch (error) {
     console.error('Error deleting task:', error);
     res.status(500).json({ error: error.message });
