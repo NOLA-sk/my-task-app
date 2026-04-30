@@ -1,0 +1,25 @@
+# === Бэкенд ===
+backend/node_modules/
+backend/.env
+backend/dist/
+backend/*.log
+
+# === Фронтенд ===
+frontend/node_modules/
+frontend/dist/
+
+# === ОС ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+test-api.http
+test-auth.http
+test-share.http
+test-full.http

@@ -1,0 +1,56 @@
+/* Кастомные стили для Task Manager */
+
+body {
+  background-color: #f8f9fa;
+}
+
+.navbar-brand {
+  font-weight: 600;
+}
+
+.card {
+  border: none;
+  border-radius: 12px;
+}
+
+.card-header {
+  border-radius: 12px 12px 0 0 !important;
+  background-color: #0d6efd !important;
+}
+
+.list-group-item {
+  border-radius: 8px !important;
+  margin-bottom: 8px;
+  border: 1px solid #e9ecef !important;
+}
+
+.list-group-item:hover {
+  background-color: #f8f9fa;
+}
+
+.btn {
+  border-radius: 8px;
+}
+
+.form-control {
+  border-radius: 8px;
+}
+
+/* Анимация появления */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Адаптивность */
+@media (max-width: 576px) {
+  .container {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+}

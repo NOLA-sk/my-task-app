@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📋 Task Manager</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  
+  <!-- Кастомные стили -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Навигация -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+      <a class="navbar-brand" href="#">
+        <i class="bi bi-check2-square"></i> Task Manager
+      </a>
+      <div class="ms-auto">
+        <span v-if="user" class="text-white me-3">
+          <i class="bi bi-person-circle"></i> {{ user.email }}
+        </span>
+        <button v-if="!user" @click="showLogin = true" class="btn btn-outline-light btn-sm me-2">
+          <i class="bi bi-box-arrow-in-right"></i> Вход
+        </button>
+        <button v-if="user" @click="logout" class="btn btn-outline-light btn-sm">
+          <i class="bi bi-box-arrow-right"></i> Выход
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Основной контент -->
+  <div class="container mt-4">
+    
+    <!-- Уведомления -->
+    <div v-if="alert" :class="'alert alert-' + alert.type" role="alert">
+      {{ alert.message }}
+    </div>
+
+    <!-- Экран авторизации -->
+    <div v-if="!user" class="row justify-content-center">
+      <div class="col-md-6 col-lg-4">
+        <div class="card shadow">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+              <i class="bi bi-key"></i> {{ showLogin ? 'Вход' : 'Регистрация' }}
+            </h5>
+          </div>
+          <div class="card-body">
+            <form @submit.prevent="auth">
+              <div class="mb-3">
+                <label class="form-label">Email</label>
+                <input v-model="authForm.email" type="email" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Пароль</label>
+                <input v-model="authForm.password" type="password" class="form-control" required minlength="6">
+              </div>
+              <button type="submit" class="btn btn-primary w-100">
+                {{ showLogin ? 'Войти' : 'Зарегистрироваться' }}
+              </button>
+            </form>
+            <hr>
+            <p class="text-center mb-0">
+              <a href="#" @click.prevent="showLogin = !showLogin" class="text-decoration-none">
+                {{ showLogin ? 'Нет аккаунта? Регистрация' : 'Уже есть аккаунт? Вход' }}
+              </a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран задач -->
+    <div v-else>
+      <!-- Создание задачи -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <form @submit.prevent="createTask" class="row g-2">
+            <div class="col-md-10">
+              <input v-model="newTaskTitle" type="text" class="form-control" placeholder="Новая задача..." required>
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-success w-100">
+                <i class="bi bi-plus-lg"></i> Создать
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Список задач -->
+      <div class="card">
+        <div class="card-header">
+          <h5 class="mb-0"><i class="bi bi-list-task"></i> Мои задачи ({{ tasks.length }})</h5>
+        </div>
+        <div class="card-body">
+          <div v-if="tasks.length === 0" class="text-center text-muted py-4">
+            <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+            <p class="mt-2">Задач пока нет. Создайте первую!</p>
+          </div>
+          
+          <div v-else class="list-group list-group-flush">
+            <div v-for="task in tasks" :key="task.id" class="list-group-item">
+              <div class="d-flex align-items-center justify-content-between">
+                <div class="form-check d-flex align-items-center flex-grow-1">
+                  <input 
+                    @change="toggleTask(task)" 
+                    :checked="task.isCompleted" 
+                    type="checkbox" 
+                    class="form-check-input me-3"
+                    style="width: 1.5em; height: 1.5em;"
+                  >
+                  <span :class="{ 'text-decoration-line-through text-muted': task.isCompleted }">
+                    {{ task.title }}
+                  </span>
+                  <span v-if="task.userId !== user.id" class="badge bg-info ms-2">
+                    <i class="bi bi-share"></i> Расшарено
+                  </span>
+                </div>
+                <div>
+                  <button @click="showShareModal = task" class="btn btn-sm btn-outline-primary me-1">
+                    <i class="bi bi-share"></i>
+                  </button>
+                  <button v-if="task.userId === user.id" @click="deleteTask(task)" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
+              <small class="text-muted">
+                <i class="bi bi-person"></i> {{ task.user.email }} • 
+                <i class="bi bi-clock"></i> {{ formatDate(task.createdAt) }}
+              </small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно: Расшаривание -->
+  <div v-if="showShareModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-share"></i> Расшарить задачу</h5>
+          <button @click="showShareModal = null" type="button" class="btn-close"></button>
+        </div>
+        <div class="modal-body">
+          <p>Задача: <strong>{{ showShareModal.title }}</strong></p>
+          <div class="mb-3">
+            <label class="form-label">Email пользователя</label>
+            <input v-model="shareEmail" type="email" class="form-control" placeholder="user@example.com">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showShareModal = null" class="btn btn-secondary">Отмена</button>
+          <button @click="shareTask" class="btn btn-primary">Отправить доступ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.js"></script>
+  
+  <!-- Логика приложения -->
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
